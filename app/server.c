@@ -44,6 +44,7 @@ int main() {
 	 	return 1;
 	 }
 	
+	
 	 int connection_backlog = 5;
 	 if (listen(server_fd, connection_backlog) != 0) {
 	 	printf("Listen failed: %s \n", strerror(errno));
@@ -53,10 +54,23 @@ int main() {
 	 printf("Waiting for a client to connect...\n");
 	 client_addr_len = sizeof(client_addr);
 	
-	 accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
-	 printf("Client connected\n");
-	
-	 close(server_fd);
+    int conn = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
+	if (conn == -1){
+
+		printf("Accept failed: %s \n", strerror(errno));
+	}
+
+	char status_line[] = "HTTP/1.1 200 OK\r\n\r\n";
+
+	if (send(conn,status_line, strlen(status_line), 0) < 0) {
+		printf("Send failed: %s \n", strerror(errno));
+
+	}
+		
+    printf("Client connected\n");
+ 
+
+	close(server_fd);
 
 	return 0;
 }
