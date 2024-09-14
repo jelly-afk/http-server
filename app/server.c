@@ -5,6 +5,7 @@
 #include <netinet/ip.h>
 #include <string.h>
 #include <errno.h>
+#include <time.h>
 #include <unistd.h>
 
 int main() {
@@ -56,20 +57,26 @@ int main() {
 	
     int conn = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
 	if (conn == -1){
-
 		printf("Accept failed: %s \n", strerror(errno));
 	}
-
-	char status_line[] = "HTTP/1.1 200 OK\r\n\r\n";
-
-	if (send(conn,status_line, strlen(status_line), 0) < 0) {
-		printf("Send failed: %s \n", strerror(errno));
+	char buffer [1024];
+    read(conn, buffer, sizeof(buffer)-1);
+    char *token;
+    token = strtok(buffer, "\r\n");
+    printf("Client connected\n");
+    token = strtok(token, " ");
+    token = strtok(NULL," ");
+    char *status_line = malloc(256);
+    if (strcmp(token, "/") == 0){
+        status_line = "HTTP/1.1 200 OK\r\n\r\n";
+    } else {
+        status_line = "HTTP/1.1 404 Not Found\r\n\r\n";
+    }
+    if (send(conn,status_line, strlen(status_line), 0) < 0) {
+        printf("Send failed: %s \n", strerror(errno));
 
 	}
-		
-    printf("Client connected\n");
- 
-
+    free(status_line);
 	close(server_fd);
 
 	return 0;
