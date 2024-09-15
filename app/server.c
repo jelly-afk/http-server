@@ -8,6 +8,8 @@
 #include <time.h>
 #include <unistd.h>
 
+char* parseUrl(char *str);
+
 int main() {
 //	 Disable output buffering
 	setbuf(stdout, NULL);
@@ -56,28 +58,55 @@ int main() {
 	 client_addr_len = sizeof(client_addr);
 	
     int conn = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
-	if (conn == -1){
-		printf("Accept failed: %s \n", strerror(errno));
-	}
-	char buffer [1024];
+    if (conn == -1){
+        printf("Accept failed: %s \n", strerror(errno));
+    }
+    char buffer [1024];
     read(conn, buffer, sizeof(buffer)-1);
     char *token;
     token = strtok(buffer, "\r\n");
     printf("Client connected\n");
     token = strtok(token, " ");
     token = strtok(NULL," ");
-    char *status_line = malloc(256);
-    if (strcmp(token, "/") == 0){
-        status_line = "HTTP/1.1 200 OK\r\n\r\n";
+    char res[1024];
+    char *parsed = parseUrl(token);
+    printf("yo, %s", parsed);
+    if (strcmp(parsed, "/echo") == 0){
+        char *st = strtok(token, "/");
+        st = strtok(NULL, "/");
+        sprintf(res, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %lu\r\n\r\n%s", strlen(st), st);
     } else {
-        status_line = "HTTP/1.1 404 Not Found\r\n\r\n";
+        if (strcmp(token, "/") == 0){
+            sprintf(res, "HTTP/1.1 200 OK\r\n\r\n");
+        } else {
+            sprintf(res, "HTTP/1.1 404 Not Found\r\n\r\n");
+        }
     }
-    if (send(conn,status_line, strlen(status_line), 0) < 0) {
+    if (send(conn,res, strlen(res), 0) < 0) {
         printf("Send failed: %s \n", strerror(errno));
+    }
 
-	}
-    free(status_line);
-	close(server_fd);
+    free(parsed);
+    close(server_fd);
+    return 0;
+}
 
-	return 0;
+char* parseUrl(char *str){
+    int length = strlen(str);
+    int i;
+    for (i = 1;i < length;i++){
+        if (str[i] == '/'){
+            break;
+        }
+    }
+    char *result = (char*)malloc((i + 1) * sizeof(char));
+    if (result == NULL) {
+        return "";
+    }
+    strncpy(result, str, i);
+    result[i] = '\0';  
+    if (strcmp(result, "/echo") == 0){
+        return result;
+    }
+    return "/";
 }
