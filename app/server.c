@@ -74,7 +74,6 @@ int main() {
     printf("req: %s\n", req);
     char res[1024];
     char *parsed = parseUrl(token);
-    printf("yo, %d\n", strcmp(parsed, "/user-agent"));
     if (strcmp(parsed, "/echo") == 0){
         char *st = strtok(token, "/");
         st = strtok(NULL, "/");
