@@ -9,6 +9,8 @@
 #include <unistd.h>
 
 char* parseUrl(char *str);
+int exists(char *target,char *elements[], int size);
+char* findHeader(char *target, char* headers);
 
 int main() {
 //	 Disable output buffering
@@ -29,8 +31,6 @@ int main() {
 	 	return 1;
 	 }
 	
-	 // Since the tester restarts your program quite often, setting SO_REUSEADDR
-	 // ensures that we don't run into 'Address already in use' errors
 	 int reuse = 1;
 	 if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
 	 	printf("SO_REUSEADDR failed: %s \n", strerror(errno));
@@ -64,17 +64,29 @@ int main() {
     char buffer [1024];
     read(conn, buffer, sizeof(buffer)-1);
     char *token;
+    char *req = strdup(buffer);
     token = strtok(buffer, "\r\n");
+
+
     printf("Client connected\n");
     token = strtok(token, " ");
     token = strtok(NULL," ");
+    printf("req: %s\n", req);
     char res[1024];
     char *parsed = parseUrl(token);
-    printf("yo, %s", parsed);
+    printf("yo, %d\n", strcmp(parsed, "/user-agent"));
     if (strcmp(parsed, "/echo") == 0){
         char *st = strtok(token, "/");
         st = strtok(NULL, "/");
         sprintf(res, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %lu\r\n\r\n%s", strlen(st), st);
+    } else if (strcmp(parsed, "/user-agent") == 0){
+        printf("working\n");
+        char *value = findHeader("User-Agent",req);
+        printf("%s\n", value);
+        if (value != NULL){
+            printf("val: %s\n", value);
+            sprintf(res, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %lu\r\n\r\n%s", strlen(value), value);
+        }
     } else {
         if (strcmp(token, "/") == 0){
             sprintf(res, "HTTP/1.1 200 OK\r\n\r\n");
@@ -105,8 +117,42 @@ char* parseUrl(char *str){
     }
     strncpy(result, str, i);
     result[i] = '\0';  
-    if (strcmp(result, "/echo") == 0){
+    char *elements[] = {
+        "/echo",
+        "/user-agent"
+    };
+    int size = sizeof(elements) / sizeof(elements[0]);
+    if (exists(result, elements,size) == 1){
         return result;
     }
     return "/";
+}
+
+int exists(char *target,char *elements[], int size) {
+    for (int i = 0; i < size; i++) {
+        if (strcmp(target, elements[i]) == 0) {
+            return 1;  
+        }
+    }
+    return 0;  
+}
+
+char* findHeader(char *target, char* req){
+ char *line = strtok(req, "\r\n"); // Get the first line of the request
+    while (line != NULL) {
+        char *colonPos = strchr(line, ':');
+        if (colonPos != NULL) {
+            *colonPos = '\0';
+            char *headerKey = line;
+            char *headerValue = colonPos + 1;
+
+            while (*headerValue == ' ') headerValue++;
+
+            if (strcmp(target, headerKey) == 0){
+                return headerValue;
+            }
+        }
+        line = strtok(NULL, "\r\n");
+    }
+    return NULL;
 }
