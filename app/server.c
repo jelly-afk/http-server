@@ -14,7 +14,12 @@ int exists(char *target,char *elements[], int size);
 char* findHeader(char *target, char* headers);
 void* handleConnection(void*);
 
-int main() {
+int g_argc;
+char **g_argv;
+
+int main(int argc, char *argv[]) {
+    g_argc = argc;
+    g_argv = argv;
 //	 Disable output buffering
 	setbuf(stdout, NULL);
  	setbuf(stderr, NULL);
@@ -88,7 +93,8 @@ char* parseUrl(char *str){
     result[i] = '\0';  
     char *elements[] = {
         "/echo",
-        "/user-agent"
+        "/user-agent",
+        "/files"
     };
     int size = sizeof(elements) / sizeof(elements[0]);
     if (exists(result, elements,size) == 1){
@@ -145,27 +151,57 @@ void* handleConnection(void* c_socket){
     char *token;
     char *req = strdup(buffer);
     token = strtok(buffer, "\r\n");
-    printf("token: %d\n", strcmp(token, "GET / HTTP/1.1"));
     printf("Client connected\n");
-      token = strtok(token, " ");
+    token = strtok(token, " ");
     token = strtok(NULL," ");
     char res[1024];
-    printf("rToken: %s\n", token);
     char *parsed = parseUrl(token);
-    printf("parsed: %s\n", parsed);
     if (strcmp(parsed, "/echo") == 0){
         char *st = strtok(token, "/");
         st = strtok(NULL, "/");
         sprintf(res, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %lu\r\n\r\n%s", strlen(st), st);
     } else if (strcmp(parsed, "/user-agent") == 0){
-        printf("working\n");
         char *value = findHeader("User-Agent",req);
         printf("%s\n", value);
         if (value != NULL){
             printf("val: %s\n", value);
             sprintf(res, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %lu\r\n\r\n%s", strlen(value), value);
         }
-    } else {
+    } else if (strcmp(parsed, "/files") == 0){
+
+        char *fName = strtok(token, "/");
+        fName = strtok(NULL, "/");
+        if (g_argc < 3){
+            printf("file path not provided\n");
+            return NULL;
+        }   
+        char *fPath = g_argv[2];
+        strcat(fPath, fName); 
+        FILE *file = fopen(fPath, "r");
+         if (!file) {
+            sprintf(res, "HTTP/1.1 404 Not Found\r\n\r\n");
+            if (send(client, res, strlen(res), 0) < 0) {
+                perror("Send failed");
+            }
+            free(req);
+            free(parsed);
+            close(client);
+            return NULL;
+        }      
+        fseek(file, 0, SEEK_END);
+        int file_size = ftell(file);
+        rewind(file);
+
+    char *data = (char*) malloc(file_size + 1);
+
+        fread(data, 1, file_size, file);
+        data[file_size] = '\0';  // Null-terminate the buffer
+        printf("%s\n", data);
+        sprintf(res, "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %lu\r\n\r\n%s", strlen(data), data);
+        free(data);
+        fclose(file);
+    } 
+    else {
         if (strcmp(token, "/") == 0){
             sprintf(res, "HTTP/1.1 200 OK\r\n\r\n");
         } else {
