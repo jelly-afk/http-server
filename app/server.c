@@ -7,10 +7,12 @@
 #include <errno.h>
 #include <time.h>
 #include <unistd.h>
+#include <pthread.h>
 
 char* parseUrl(char *str);
 int exists(char *target,char *elements[], int size);
 char* findHeader(char *target, char* headers);
+void* handleConnection(void*);
 
 int main() {
 //	 Disable output buffering
@@ -47,58 +49,26 @@ int main() {
 	 	return 1;
 	 }
 	
-	
-	 int connection_backlog = 5;
+	 int connection_backlog = 10;
 	 if (listen(server_fd, connection_backlog) != 0) {
 	 	printf("Listen failed: %s \n", strerror(errno));
 	 	return 1;
 	 }
-	
-	 printf("Waiting for a client to connect...\n");
-	 client_addr_len = sizeof(client_addr);
-	
-    int conn = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
-    if (conn == -1){
-        printf("Accept failed: %s \n", strerror(errno));
-    }
-    char buffer [1024];
-    read(conn, buffer, sizeof(buffer)-1);
-    char *token;
-    char *req = strdup(buffer);
-    token = strtok(buffer, "\r\n");
 
+    printf("Waiting for a client to connect...\n");
+    while (1) {
+        client_addr_len = sizeof(client_addr);
 
-    printf("Client connected\n");
-    token = strtok(token, " ");
-    token = strtok(NULL," ");
-    printf("req: %s\n", req);
-    char res[1024];
-    char *parsed = parseUrl(token);
-    if (strcmp(parsed, "/echo") == 0){
-        char *st = strtok(token, "/");
-        st = strtok(NULL, "/");
-        sprintf(res, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %lu\r\n\r\n%s", strlen(st), st);
-    } else if (strcmp(parsed, "/user-agent") == 0){
-        printf("working\n");
-        char *value = findHeader("User-Agent",req);
-        printf("%s\n", value);
-        if (value != NULL){
-            printf("val: %s\n", value);
-            sprintf(res, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %lu\r\n\r\n%s", strlen(value), value);
+        int client_socket = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
+        if (client_socket == -1){
+            printf("Accept failed: %s \n", strerror(errno));
         }
-    } else {
-        if (strcmp(token, "/") == 0){
-            sprintf(res, "HTTP/1.1 200 OK\r\n\r\n");
-        } else {
-            sprintf(res, "HTTP/1.1 404 Not Found\r\n\r\n");
-        }
-    }
-    if (send(conn,res, strlen(res), 0) < 0) {
-        printf("Send failed: %s \n", strerror(errno));
-    }
-
-    free(parsed);
-    close(server_fd);
+        int *pclient = malloc(sizeof(int));
+        pthread_t t;
+        *pclient = client_socket; 
+        pthread_create(&t,  NULL, handleConnection, pclient);
+   
+    } 
     return 0;
 }
 
@@ -124,7 +94,9 @@ char* parseUrl(char *str){
     if (exists(result, elements,size) == 1){
         return result;
     }
-    return "/";
+    free(result);
+    result = strdup("/");
+    return result;
 }
 
 int exists(char *target,char *elements[], int size) {
@@ -153,5 +125,59 @@ char* findHeader(char *target, char* req){
         }
         line = strtok(NULL, "\r\n");
     }
+    return NULL;
+}
+
+
+
+void* handleConnection(void* c_socket){
+
+    int client = *((int*)c_socket);
+    free(c_socket);
+
+    char buffer [1024];
+    int bytes_read = read(client, buffer, sizeof(buffer)-1);
+    if (bytes_read < 0) {
+        perror("Read failed");
+        close(client);
+        return NULL;
+    }
+    char *token;
+    char *req = strdup(buffer);
+    token = strtok(buffer, "\r\n");
+    printf("token: %d\n", strcmp(token, "GET / HTTP/1.1"));
+    printf("Client connected\n");
+      token = strtok(token, " ");
+    token = strtok(NULL," ");
+    char res[1024];
+    printf("rToken: %s\n", token);
+    char *parsed = parseUrl(token);
+    printf("parsed: %s\n", parsed);
+    if (strcmp(parsed, "/echo") == 0){
+        char *st = strtok(token, "/");
+        st = strtok(NULL, "/");
+        sprintf(res, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %lu\r\n\r\n%s", strlen(st), st);
+    } else if (strcmp(parsed, "/user-agent") == 0){
+        printf("working\n");
+        char *value = findHeader("User-Agent",req);
+        printf("%s\n", value);
+        if (value != NULL){
+            printf("val: %s\n", value);
+            sprintf(res, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %lu\r\n\r\n%s", strlen(value), value);
+        }
+    } else {
+        if (strcmp(token, "/") == 0){
+            sprintf(res, "HTTP/1.1 200 OK\r\n\r\n");
+        } else {
+            sprintf(res, "HTTP/1.1 404 Not Found\r\n\r\n");
+        }
+    }
+    if (send(client,res, strlen(res), 0) < 0) {
+        printf("Send failed: %s \n", strerror(errno));
+    }
+    close(client);
+
+    free(req);
+    free(parsed);
     return NULL;
 }
