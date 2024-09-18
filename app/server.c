@@ -8,11 +8,24 @@
 #include <time.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
-char* parseUrl(char *str);
+typedef struct {
+    char *method;
+    char *resource;
+    char *http_version;
+    char *headers;
+    char *body;
+} HttpRequest;
+
+char* parseResource(char *str);
 int exists(char *target,char *elements[], int size);
 char* findHeader(char *target, char* headers);
 void* handleConnection(void*);
+HttpRequest* split_request(const char *request);
+void free_http_request_parts(HttpRequest *parts);
+
 
 int g_argc;
 char **g_argv;
@@ -20,15 +33,11 @@ char **g_argv;
 int main(int argc, char *argv[]) {
     g_argc = argc;
     g_argv = argv;
-//	 Disable output buffering
 	setbuf(stdout, NULL);
  	setbuf(stderr, NULL);
 
-//	 You can use print statements as follows for debugging, they'll be visible when running tests.
 	printf("Logs from your program will appear here!\n");
 
-//	 Uncomment this block to pass the first stage
-	
 	 int server_fd, client_addr_len;
 	 struct sockaddr_in client_addr;
 	
@@ -77,45 +86,10 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
-char* parseUrl(char *str){
-    int length = strlen(str);
-    int i;
-    for (i = 1;i < length;i++){
-        if (str[i] == '/'){
-            break;
-        }
-    }
-    char *result = (char*)malloc((i + 1) * sizeof(char));
-    if (result == NULL) {
-        return "";
-    }
-    strncpy(result, str, i);
-    result[i] = '\0';  
-    char *elements[] = {
-        "/echo",
-        "/user-agent",
-        "/files"
-    };
-    int size = sizeof(elements) / sizeof(elements[0]);
-    if (exists(result, elements,size) == 1){
-        return result;
-    }
-    free(result);
-    result = strdup("/");
-    return result;
-}
 
-int exists(char *target,char *elements[], int size) {
-    for (int i = 0; i < size; i++) {
-        if (strcmp(target, elements[i]) == 0) {
-            return 1;  
-        }
-    }
-    return 0;  
-}
 
 char* findHeader(char *target, char* req){
- char *line = strtok(req, "\r\n"); // Get the first line of the request
+ char *line = strtok(req, "\r\n"); 
     while (line != NULL) {
         char *colonPos = strchr(line, ':');
         if (colonPos != NULL) {
@@ -148,72 +122,159 @@ void* handleConnection(void* c_socket){
         close(client);
         return NULL;
     }
-    char *token;
-    char *req = strdup(buffer);
-    token = strtok(buffer, "\r\n");
+    HttpRequest *req = split_request(buffer);
     printf("Client connected\n");
-    token = strtok(token, " ");
-    token = strtok(NULL," ");
     char res[1024];
-    char *parsed = parseUrl(token);
-    if (strcmp(parsed, "/echo") == 0){
-        char *st = strtok(token, "/");
-        st = strtok(NULL, "/");
-        sprintf(res, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %lu\r\n\r\n%s", strlen(st), st);
-    } else if (strcmp(parsed, "/user-agent") == 0){
-        char *value = findHeader("User-Agent",req);
-        printf("%s\n", value);
-        if (value != NULL){
-            printf("val: %s\n", value);
-            sprintf(res, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %lu\r\n\r\n%s", strlen(value), value);
+        char *resType = NULL;
+        char *resName = NULL;
+    if (strcmp(req->resource, "/") != 0){
+        resType = strdup(req->resource+1);
+        if (resType == NULL){
+
+        resType = req->resource;
+        } else {
+
+        char *diff = strstr(resType, "/");
+        resName = strdup(diff+1); 
+        *diff = '\0';
         }
-    } else if (strcmp(parsed, "/files") == 0){
+    } else {
+        resType = req->resource;
+    }
+    printf("%s %s\n", resType, resName);
 
-        char *fName = strtok(token, "/");
-        fName = strtok(NULL, "/");
-        if (g_argc < 3){
-            printf("file path not provided\n");
-            return NULL;
-        }   
-        char *fPath = g_argv[2];
-        strcat(fPath, fName); 
-        FILE *file = fopen(fPath, "r");
-         if (!file) {
-            sprintf(res, "HTTP/1.1 404 Not Found\r\n\r\n");
-            if (send(client, res, strlen(res), 0) < 0) {
-                perror("Send failed");
+    if (strcmp(req->method, "GET") == 0){
+
+        if (strcmp(resType, "echo") == 0){
+            sprintf(res, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %lu\r\n\r\n%s", strlen(resName), resName);
+        } else if (strcmp(resType, "user-agent") == 0){
+            char *value = findHeader("User-Agent",req->headers);
+            printf("%s\n", value);
+            if (value != NULL){
+                printf("val: %s\n", value);
+                sprintf(res, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %lu\r\n\r\n%s", strlen(value), value);
             }
-            free(req);
-            free(parsed);
-            close(client);
-            return NULL;
-        }      
-        fseek(file, 0, SEEK_END);
-        int file_size = ftell(file);
-        rewind(file);
+        } else if (strcmp(resType, "files") == 0){
 
-    char *data = (char*) malloc(file_size + 1);
+            if (g_argc < 3){
+                printf("file path not provided\n");
+                return NULL;
+            }   
+            char *fPath = g_argv[2];
+            strcat(fPath, resName); 
+            FILE *file = fopen(fPath, "r");
+            if (!file) {
+                sprintf(res, "HTTP/1.1 404 Not Found\r\n\r\n");
+                if (send(client, res, strlen(res), 0) < 0) {
+                    perror("Send failed");
+                }
+                free_http_request_parts(req);
+                free(resName);
+                free(resType);
+                close(client);
+                return NULL;
+            }      
+            fseek(file, 0, SEEK_END);
+            int file_size = ftell(file);
+            rewind(file);
 
-        fread(data, 1, file_size, file);
-        data[file_size] = '\0';  // Null-terminate the buffer
-        printf("%s\n", data);
-        sprintf(res, "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %lu\r\n\r\n%s", strlen(data), data);
-        free(data);
-        fclose(file);
-    } 
-    else {
-        if (strcmp(token, "/") == 0){
+            char *data = (char*) malloc(file_size + 1);
+
+            fread(data, 1, file_size, file);
+            data[file_size] = '\0'; 
+            printf("%s\n", data);
+            sprintf(res, "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %lu\r\n\r\n%s", strlen(data), data);
+            free(data);
+            fclose(file);
+        } else if (strcmp(resType, "/") == 0){
             sprintf(res, "HTTP/1.1 200 OK\r\n\r\n");
         } else {
             sprintf(res, "HTTP/1.1 404 Not Found\r\n\r\n");
         }
+
+    } else if (strcmp(req->method, "POST") == 0) {
+        if (strcmp(resType, "files") == 0){
+            if (mkdir(g_argv[2], 0755) == -1) {
+                if (errno != EEXIST) {
+                    perror("Error creating directory");
+                    return NULL;
+                }
+            }
+            char *fname = malloc(strlen(g_argv[2]) + strlen(resName) + 1);
+            sprintf(fname, "%s/%s",g_argv[2], resName);
+            FILE *file = fopen(fname, "w");
+            if (file == NULL) {
+                    perror("Error opening file");
+                    return NULL;
+            }
+            fputs(req->body, file);
+            fclose(file);
+            free(fname);
+            strcpy(res, "HTTP/1.1 201 Created\r\n\r\n");
+        }
+
     }
+    printf("%s\n", res);
     if (send(client,res, strlen(res), 0) < 0) {
         printf("Send failed: %s \n", strerror(errno));
     }
+    if (req->resource != resType){
+        free(resType);
+    }
+    free(resName);
     close(client);
+    free_http_request_parts(req);
 
-    free(req);
-    free(parsed);
     return NULL;
+}
+
+HttpRequest* split_request(const char *request) {
+    HttpRequest *parts = malloc(sizeof(HttpRequest));
+    if (!parts) return NULL;
+
+    parts->method = NULL;
+    parts->resource = NULL;
+    parts->http_version = NULL;
+    parts->headers = NULL;
+    parts->body = NULL;
+
+    char *request_copy = strdup(request);
+    if (!request_copy) {
+        free(parts);
+        return NULL;
+    }
+
+    char *blank_line = strstr(request_copy, "\r\n\r\n");
+    if (blank_line) {
+        *blank_line = '\0';
+        parts->body = strdup(blank_line + 4);
+    }
+
+    char *first_line_end = strstr(request_copy, "\r\n");
+    if (first_line_end) {
+        *first_line_end = '\0';
+        parts->headers = strdup(first_line_end + 2);
+    }
+
+    char *method = strtok(request_copy, " ");
+    char *resource = strtok(NULL, " ");
+    char *http_version = strtok(NULL, " ");
+
+    if (method) parts->method = strdup(method);
+    if (resource) parts->resource = strdup(resource);
+    if (http_version) parts->http_version = strdup(http_version);
+
+    free(request_copy);
+    return parts;
+}
+
+
+void free_http_request_parts(HttpRequest *parts) {
+    if (!parts) return;  
+    if (parts->method) free(parts->method);
+    if (parts->resource) free(parts->resource);
+    if (parts->http_version) free(parts->http_version);
+    if (parts->headers) free(parts->headers);
+    if (parts->body) free(parts->body);
+    free(parts);
 }
