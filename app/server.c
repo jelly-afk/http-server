@@ -88,8 +88,8 @@ int main(int argc, char *argv[]) {
 
 
 
-char* findHeader(char *target, char* req){
- char *line = strtok(req, "\r\n"); 
+char* findHeader(char *target, char* headers){
+ char *line = strtok(headers, "\r\n"); 
     while (line != NULL) {
         char *colonPos = strchr(line, ':');
         if (colonPos != NULL) {
@@ -125,18 +125,19 @@ void* handleConnection(void* c_socket){
     HttpRequest *req = split_request(buffer);
     printf("Client connected\n");
     char res[1024];
-        char *resType = NULL;
-        char *resName = NULL;
+    char *resType;
+    char *resName;
     if (strcmp(req->resource, "/") != 0){
         resType = strdup(req->resource+1);
         if (resType == NULL){
-
-        resType = req->resource;
+            resType = req->resource;
         } else {
 
-        char *diff = strstr(resType, "/");
-        resName = strdup(diff+1); 
-        *diff = '\0';
+            char *diff = strstr(resType, "/");
+            if (diff != NULL){
+                resName = strdup(diff+1); 
+                *diff = '\0';
+            }
         }
     } else {
         resType = req->resource;
@@ -205,6 +206,7 @@ void* handleConnection(void* c_socket){
             FILE *file = fopen(fname, "w");
             if (file == NULL) {
                     perror("Error opening file");
+
                     return NULL;
             }
             fputs(req->body, file);
@@ -222,8 +224,9 @@ void* handleConnection(void* c_socket){
         free(resType);
     }
     free(resName);
-    close(client);
     free_http_request_parts(req);
+    close(client);
+    printf("closed");
 
     return NULL;
 }
